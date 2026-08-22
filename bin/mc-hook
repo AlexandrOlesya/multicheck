@@ -22,7 +22,11 @@ if [[ ! -t 0 ]]; then
   while read -r _local_ref local_sha _remote_ref remote_sha; do
     [[ -z "${local_sha:-}" || "$local_sha" = "$ZERO" ]] && continue
     if [[ "${remote_sha:-$ZERO}" = "$ZERO" ]]; then
-      base=$(git merge-base origin/HEAD "$local_sha" 2>/dev/null || echo "")
+      # база = родитель самого старого коммита, которого ещё нет ни на одном
+      # remote. Не зависит от имени главной ветки (main/master/trunk/develop).
+      oldest=$(git rev-list "$local_sha" --not --remotes 2>/dev/null | tail -1)
+      base=$(git rev-parse "${oldest}^" 2>/dev/null || echo "")
+      [[ -z "$base" ]] && base=$(git merge-base origin/HEAD "$local_sha" 2>/dev/null || echo "")
       range=${base:+$base..}$local_sha
     else
       range="$remote_sha..$local_sha"

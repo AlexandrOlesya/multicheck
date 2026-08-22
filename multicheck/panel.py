@@ -103,6 +103,6 @@ def render(results, marker="🔴", label="red-team"):
 def read_payload(argv, stdin=None):
     stdin = sys.stdin if stdin is None else stdin
     if len(argv) > 1 and argv[1] not in ("-", "--stdin"):
-        with open(argv[1]) as handle:
+        with open(argv[1], errors="replace") as handle:
             return handle.read()
     return stdin.read()

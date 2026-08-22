@@ -38,6 +38,25 @@ printf 'x %s y %s\n' "$(git rev-parse HEAD)" "0000000000000000000000000000000000
   | MC_MIN_LINES=99999 "$ROOT/bin/mc-hook" >/dev/null 2>&1
 check "тривиальный диф не тратит прогон" "0" "$?"
 
+git checkout -qb feature
+printf 'вторая строка\nтретья\n' >> file.py
+git commit -qam "вторая правка"
+printf 'x %s y %s\n' "$(git rev-parse HEAD)" "0000000000000000000000000000000000000000" \
+  | MC_MIN_LINES=1 MC_PANEL="" OPENROUTER_API_KEY="" "$ROOT/bin/mc-hook" >/dev/null 2>&1
+check "новая ветка без базы не падает" "0" "$?"
+
+git init -q --bare "$SANDBOX/origin"
+git remote add origin "$SANDBOX/origin"
+git push -q origin feature 2>/dev/null
+git checkout -qb trunk
+printf 'четвёртая\nпятая\nшестая\n' >> file.py
+git commit -qam "первый непушенный"
+printf 'седьмая\n' >> file.py
+git commit -qam "второй непушенный"
+RANGE_DIFF=$(printf 'x %s y %s\n' "$(git rev-parse HEAD)" "0000000000000000000000000000000000000000" \
+  | MC_MIN_LINES=1 MC_PANEL="" OPENROUTER_API_KEY="" "$ROOT/bin/mc-hook" 2>&1 | grep -c "строк")
+check "ветка с нестандартным именем даёт диапазон" "1" "$RANGE_DIFF"
+
 echo "установщик:"
 
 "$ROOT/bin/mc-install-hook" "$SANDBOX/repo" >/dev/null 2>&1

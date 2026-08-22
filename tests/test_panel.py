@@ -119,6 +119,14 @@ class Payload(unittest.TestCase):
     def test_reads_stdin_without_args(self):
         self.assertEqual(panel.read_payload(["prog"], io.StringIO("из потока")), "из потока")
 
+    def test_binary_file_does_not_crash(self):
+        """Диф может содержать бинарь — нечитаемые байты не должны ронять прогон."""
+        with tempfile.NamedTemporaryFile("wb", suffix=".diff", delete=False) as handle:
+            handle.write(b"diff --git a/logo.png\n\xff\xfe\x00binary\n")
+        got = panel.read_payload(["prog", handle.name])
+        self.assertIn("diff --git", got)
+        os.unlink(handle.name)
+
 
 class Convergence(unittest.TestCase):
     def test_no_findings_is_ideal(self):
