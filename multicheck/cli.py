@@ -4,6 +4,8 @@ import sys
 
 from . import panel, prompts
 
+MAX_RULES_CHARS = 20000
+
 MODES = {
     "review": (prompts.BREAK, "🔴", "red-team"),
     "refute": (prompts.REFUTE, "🟠", "скептик"),
@@ -17,8 +19,8 @@ def project_rules(env=None):
     if not path:
         return ""
     try:
-        with open(os.path.expanduser(path)) as handle:
-            return handle.read()
+        with open(os.path.expanduser(path), encoding="utf-8", errors="replace") as handle:
+            return handle.read(MAX_RULES_CHARS)
     except OSError:
         return ""
 

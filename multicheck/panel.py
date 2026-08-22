@@ -28,7 +28,7 @@ def resolve_key(env=None, files=None):
     for path in files or KEY_FILES:
         expanded = os.path.expanduser(path)
         try:
-            with open(expanded) as handle:
+            with open(expanded, encoding="utf-8", errors="replace") as handle:
                 key = handle.read().strip()
         except OSError:
             continue
@@ -103,6 +103,6 @@ def render(results, marker="🔴", label="red-team"):
 def read_payload(argv, stdin=None):
     stdin = sys.stdin if stdin is None else stdin
     if len(argv) > 1 and argv[1] not in ("-", "--stdin"):
-        with open(argv[1], errors="replace") as handle:
+        with open(argv[1], encoding="utf-8", errors="replace") as handle:
             return handle.read()
     return stdin.read()

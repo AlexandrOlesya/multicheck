@@ -194,18 +194,32 @@ class Modes(unittest.TestCase):
         root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
         example = os.path.join(root, "examples", "project-rules.example.md")
         self.assertTrue(os.path.exists(example), "пример правил потерялся из репозитория")
-        merged = prompts.with_project_rules("BASE", open(example).read())
+        with open(example, encoding="utf-8") as handle:
+            text = handle.read()
+        merged = prompts.with_project_rules("BASE", text)
         self.assertIn("BASE", merged)
-        self.assertIn("идемпотентности", merged)
+        self.assertIn(text.strip(), merged)
 
     def test_project_rules_read_from_env_path(self):
-        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as handle:
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as handle:
             handle.write("не трогай продовую очередь")
+        missing = os.path.join(tempfile.mkdtemp(), "нет-такого.md")
         try:
-            got = cli.project_rules({"MC_PROJECT_RULES": handle.name})
-            self.assertIn("продовую", got)
-            self.assertEqual(cli.project_rules({"MC_PROJECT_RULES": "/nope/missing.md"}), "")
+            self.assertIn("продовую", cli.project_rules({"MC_PROJECT_RULES": handle.name}))
+            self.assertEqual(cli.project_rules({"MC_PROJECT_RULES": missing}), "")
             self.assertEqual(cli.project_rules({}), "")
+        finally:
+            os.unlink(handle.name)
+
+    def test_directory_as_rules_path_is_survivable(self):
+        """Путь может указывать на папку — прогон не должен падать."""
+        self.assertEqual(cli.project_rules({"MC_PROJECT_RULES": tempfile.mkdtemp()}), "")
+
+    def test_huge_rules_file_is_capped(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as handle:
+            handle.write("я" * (cli.MAX_RULES_CHARS + 5000))
+        try:
+            self.assertEqual(len(cli.project_rules({"MC_PROJECT_RULES": handle.name})), cli.MAX_RULES_CHARS)
         finally:
             os.unlink(handle.name)
 
