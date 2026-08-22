@@ -188,6 +188,27 @@ class Modes(unittest.TestCase):
     def test_empty_project_rules_change_nothing(self):
         self.assertEqual(prompts.with_project_rules("BASE", "  "), "BASE")
 
+    def test_example_rules_file_is_shipped_and_loads(self):
+        """Пример должен лежать в репозитории и подставляться — иначе про
+        MC_PROJECT_RULES никто не догадается."""
+        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        example = os.path.join(root, "examples", "project-rules.example.md")
+        self.assertTrue(os.path.exists(example), "пример правил потерялся из репозитория")
+        merged = prompts.with_project_rules("BASE", open(example).read())
+        self.assertIn("BASE", merged)
+        self.assertIn("идемпотентности", merged)
+
+    def test_project_rules_read_from_env_path(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as handle:
+            handle.write("не трогай продовую очередь")
+        try:
+            got = cli.project_rules({"MC_PROJECT_RULES": handle.name})
+            self.assertIn("продовую", got)
+            self.assertEqual(cli.project_rules({"MC_PROJECT_RULES": "/nope/missing.md"}), "")
+            self.assertEqual(cli.project_rules({}), "")
+        finally:
+            os.unlink(handle.name)
+
     def test_prompts_stay_generic(self):
         """Промты не должны нести деталей конкретного проекта: они публичные,
         а внутреннее подставляется через MC_PROJECT_RULES. Свой список слов
