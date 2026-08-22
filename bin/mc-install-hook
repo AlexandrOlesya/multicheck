@@ -1,0 +1,32 @@
+#!/bin/bash
+# Ставит advisory pre-push хук в репозиторий. Аргумент: путь к репо (по умолчанию — текущий).
+# Чужой pre-push не трогает. Хук живёт в .git/hooks и в репозиторий не коммитится.
+set -euo pipefail
+
+REPO="${1:-$PWD}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+GITDIR="$(git -C "$REPO" rev-parse --git-dir 2>/dev/null || true)"
+
+if [[ -z "$GITDIR" ]]; then
+  echo "не git-репозиторий: $REPO" >&2
+  exit 1
+fi
+[[ "$GITDIR" != /* ]] && GITDIR="$REPO/$GITDIR"
+
+HOOK="$GITDIR/hooks/pre-push"
+if [[ -f "$HOOK" ]] && ! grep -q "multicheck" "$HOOK" 2>/dev/null; then
+  echo "⚠ $REPO: pre-push уже занят другим хуком — не трогаю, разберись вручную" >&2
+  exit 0
+fi
+
+mkdir -p "$GITDIR/hooks"
+cat > "$HOOK" <<HOOKFILE
+#!/bin/bash
+# multicheck advisory pre-push (локальный, в репозиторий не коммитится)
+if command -v lefthook >/dev/null 2>&1 && [ -f "\$(git rev-parse --show-toplevel)/lefthook.yml" ]; then
+  exec lefthook run pre-push "\$@"
+fi
+exec "$ROOT/bin/mc-hook" "\$@"
+HOOKFILE
+chmod +x "$HOOK"
+echo "✓ хук поставлен: $REPO"

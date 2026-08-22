@@ -1,0 +1,50 @@
+#!/bin/bash
+# pre-push: независимая панель на пушимый диф.
+#   • advisory — никогда не блокирует пуш, всегда exit 0
+#   • read-only — только git diff
+#   • не виснет без stdin, уступает lefthook
+# Пропуск разово: MC_SKIP=1 git push
+set -uo pipefail
+[[ "${MC_SKIP:-0}" = "1" ]] && exit 0
+
+ROOT="$(cd "$(dirname "$(readlink "${BASH_SOURCE[0]}" || echo "${BASH_SOURCE[0]}")")/.." && pwd)"
+ZERO="0000000000000000000000000000000000000000"
+MIN_LINES="${MC_MIN_LINES:-6}"
+read -r -a EXTENSIONS <<<"${MC_EXTENSIONS:-*.rb *.ts *.tsx *.js *.jsx *.py *.sh *.go *.java *.kt *.kts *.rs}"
+
+collect() {
+  local range="$1"
+  git diff "$range" -- "${EXTENSIONS[@]}" 2>/dev/null
+}
+
+DIFF=""
+if [[ ! -t 0 ]]; then
+  while read -r _local_ref local_sha _remote_ref remote_sha; do
+    [[ -z "${local_sha:-}" || "$local_sha" = "$ZERO" ]] && continue
+    if [[ "${remote_sha:-$ZERO}" = "$ZERO" ]]; then
+      base=$(git merge-base origin/HEAD "$local_sha" 2>/dev/null || echo "")
+      range=${base:+$base..}$local_sha
+    else
+      range="$remote_sha..$local_sha"
+    fi
+    DIFF+=$(collect "$range")
+  done
+else
+  base=$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || echo "")
+  [[ -z "$base" ]] && base=$(git merge-base origin/HEAD HEAD 2>/dev/null || echo "")
+  [[ -n "$base" ]] && DIFF=$(collect "$base...HEAD")
+fi
+
+LINES=$(printf '%s' "$DIFF" | wc -l | tr -d ' ')
+if [[ -z "${DIFF// }" || "$LINES" -lt "$MIN_LINES" ]]; then exit 0; fi
+
+TMP="$(mktemp -t multicheck)"
+trap 'rm -f "$TMP"' EXIT
+printf '%s' "$DIFF" > "$TMP"
+
+echo "── multicheck: независимая проверка пушимого дифа ($LINES строк, advisory) ──" >&2
+"$ROOT/bin/mc-review" "$TMP" 2>/dev/null | sed 's/^/  /' >&2 || true
+echo "── ⚡ вопросы к себе перед пушем ──" >&2
+GRILL_FAST=1 "$ROOT/bin/mc-grill" "$TMP" 2>/dev/null | sed 's/^/  /' >&2 || true
+echo "── пуш не блокируется. Пропуск: MC_SKIP=1 git push ──" >&2
+exit 0
