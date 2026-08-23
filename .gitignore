@@ -3,3 +3,4 @@ __pycache__/
 .DS_Store
 openrouter_key
 project-rules.md
+.vscode/
