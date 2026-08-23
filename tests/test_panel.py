@@ -90,6 +90,21 @@ class Ask(unittest.TestCase):
         self.assertEqual(seen["len"], panel.MAX_INPUT_CHARS)
 
 
+class Defaults(unittest.TestCase):
+    def test_run_falls_back_to_configured_panel_and_key(self):
+        """Без явных models/key берётся панель из окружения и найденный ключ —
+        мутация `models or panel_models()` в `and` не должна проходить молча."""
+        saved = dict(os.environ)
+        os.environ["MC_PANEL"] = "x/alpha,y/beta"
+        os.environ["OPENROUTER_API_KEY"] = "k"
+        try:
+            results = panel.run("sys", "payload", opener=fake_opener([reply("a"), reply("b")]))
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+        self.assertEqual([model for model, _ in results], ["x/alpha", "y/beta"])
+
+
 class Render(unittest.TestCase):
     def test_marks_silent_models(self):
         out = panel.render([("a/one", "находка"), ("b/two", None)])
@@ -99,6 +114,11 @@ class Render(unittest.TestCase):
     def test_reports_total_failure(self):
         out = panel.render([("a/one", None), ("b/two", None)])
         self.assertIn("ПАНЕЛЬ НЕДОСТУПНА", out)
+
+    def test_success_does_not_claim_panel_is_down(self):
+        out = panel.render([("a/one", "находка"), ("b/two", None)])
+        self.assertNotIn("ПАНЕЛЬ НЕДОСТУПНА", out,
+                         "если хоть кто-то ответил, паниковать нельзя")
 
     def test_uses_short_model_name(self):
         out = panel.render([("vendor/family/model-x", "текст")])
@@ -173,6 +193,18 @@ class Modes(unittest.TestCase):
         env = {"MC_PANEL": "a/one,b/two,c/three"}
         self.assertEqual(len(cli.models_for("review", env)), 3)
 
+    def test_grill_without_fast_uses_whole_panel(self):
+        env = {"MC_PANEL": "a/one,b/two,c/three"}
+        self.assertEqual(len(cli.models_for("grill", env)), 3, "урезать панель должен только GRILL_FAST")
+
+    def test_fast_flag_does_not_shrink_other_modes(self):
+        env = {"MC_PANEL": "a/one,b/two,c/three", "GRILL_FAST": "1"}
+        self.assertEqual(len(cli.models_for("review", env)), 3)
+        self.assertEqual(len(cli.models_for("refute", env)), 3)
+
+    def test_panel_list_tolerates_spaces(self):
+        self.assertEqual(panel.panel_models({"MC_PANEL": "  a/one , b/two  "}), ["a/one", "b/two"])
+
     def test_panel_is_configurable(self):
         self.assertEqual(panel.panel_models({"MC_PANEL": "x/y"}), ["x/y"])
 
@@ -216,6 +248,8 @@ class Modes(unittest.TestCase):
         self.assertIn("DIFF HERE", merged)
         self.assertIn("app.rb:12", merged)
         self.assertIn("Do NOT repeat", merged)
+        self.assertIn("=== ALREADY REPORTED ===", merged)
+        self.assertIn("=== END ===", merged)
         self.assertLess(merged.index("ALREADY REPORTED"), merged.index("DIFF HERE"),
                         "уже найденное должно идти до дифа, иначе модель его не заметит")
 
