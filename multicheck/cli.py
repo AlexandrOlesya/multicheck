@@ -2,7 +2,7 @@
 import os
 import sys
 
-from . import panel, prompts
+from . import context, panel, prompts
 
 MAX_RULES_CHARS = 20000
 MAX_STATIC_CHARS = 20000
@@ -24,6 +24,22 @@ def project_rules(env=None):
             return handle.read(MAX_RULES_CHARS)
     except OSError:
         return ""
+
+
+def context_root(argv=None, env=None):
+    """Откуда брать содержимое изменённых файлов: --repo, MC_REPO или текущая
+    директория, если это git-репозиторий."""
+    argv = sys.argv if argv is None else argv
+    env = os.environ if env is None else env
+    if "--repo" in argv:
+        index = argv.index("--repo")
+        if index + 1 < len(argv):
+            return os.path.expanduser(argv[index + 1])
+    from_env = (env.get("MC_REPO") or "").strip()
+    if from_env:
+        return os.path.expanduser(from_env)
+    cwd = os.getcwd()
+    return cwd if os.path.isdir(os.path.join(cwd, ".git")) else ""
 
 
 def static_findings(env=None):
@@ -77,7 +93,17 @@ def main(mode, argv=None, stdin=None, opener=None):
         print(exc, file=sys.stderr)
         return 2
 
+    if mode == "review":
+        payload = context.with_context(payload, context.collect(payload, context_root(argv)))
     payload = with_static(payload, static_findings())
+
+    dump = (os.environ.get("MC_DUMP_PAYLOAD") or "").strip()
+    if dump:
+        try:
+            with open(os.path.expanduser(dump), "w", encoding="utf-8") as handle:
+                handle.write(system + "\n\n===== PAYLOAD =====\n" + payload)
+        except OSError:
+            pass
 
     results = panel.run(system, payload, models=models_for(mode), key=key, opener=opener)
     print(panel.render(results, marker=marker, label=label))

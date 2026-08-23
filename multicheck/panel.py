@@ -13,7 +13,7 @@ DEFAULT_PANEL = [
     "qwen/qwen-2.5-coder-32b-instruct",
 ]
 KEY_FILES = ["~/.config/multicheck/openrouter_key", "~/.openrouter_review_key"]
-MAX_INPUT_CHARS = 120000
+MAX_INPUT_CHARS = int(os.environ.get("MC_MAX_INPUT", "200000"))
 
 
 class MissingKey(RuntimeError):
@@ -56,7 +56,7 @@ def ask(model, system, payload, key, retries=2, timeout=120, opener=None):
             {"role": "system", "content": system},
             {"role": "user", "content": payload[:MAX_INPUT_CHARS]},
         ],
-        "max_tokens": 1500,
+        "max_tokens": int(os.environ.get("MC_MAX_TOKENS", "4000")),
         "temperature": 0.3,
         "reasoning": {"exclude": True},
     }).encode()

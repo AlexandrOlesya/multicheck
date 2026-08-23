@@ -7,7 +7,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from multicheck import cli, convergence, panel, prompts
+from multicheck import cli, context, convergence, panel, prompts
 
 
 def fake_opener(payloads):
@@ -146,6 +146,56 @@ class Payload(unittest.TestCase):
         got = panel.read_payload(["prog", handle.name])
         self.assertIn("diff --git", got)
         os.unlink(handle.name)
+
+
+class Context(unittest.TestCase):
+    DIFF = (
+        "diff --git a/app/a.rb b/app/a.rb\n--- a/app/a.rb\n+++ b/app/a.rb\n@@ -1 +1 @@\n-x\n+y\n"
+        "diff --git a/lib/b.py b/lib/b.py\n--- /dev/null\n+++ b/lib/b.py\n@@ -0,0 +1 @@\n+z\n"
+    )
+
+    def test_finds_changed_files(self):
+        self.assertEqual(context.changed_files(self.DIFF), ["app/a.rb", "lib/b.py"])
+
+    def test_ignores_deleted_files(self):
+        deleted = "--- a/gone.rb\n+++ /dev/null\n"
+        self.assertEqual(context.changed_files(deleted), [])
+
+    def test_collects_existing_files_only(self):
+        root = tempfile.mkdtemp()
+        os.makedirs(os.path.join(root, "app"))
+        with open(os.path.join(root, "app", "a.rb"), "w", encoding="utf-8") as handle:
+            handle.write("class A; end")
+        collected = context.collect(self.DIFF, root)
+        self.assertIn("class A; end", collected)
+        self.assertIn("FILE: app/a.rb", collected)
+        self.assertNotIn("lib/b.py", collected, "несуществующий файл не должен попадать")
+
+    def test_missing_root_is_survivable(self):
+        self.assertEqual(context.collect(self.DIFF, "/nope/missing"), "")
+        self.assertEqual(context.collect(self.DIFF, ""), "")
+
+    def test_budget_is_respected(self):
+        root = tempfile.mkdtemp()
+        os.makedirs(os.path.join(root, "app"))
+        with open(os.path.join(root, "app", "a.rb"), "w", encoding="utf-8") as handle:
+            handle.write("x" * 5000)
+        collected = context.collect(self.DIFF, root, budget=1000)
+        self.assertLess(len(collected), 1200)
+        self.assertIn("не поместились", collected)
+
+    def test_context_goes_before_diff(self):
+        merged = context.with_context("THE DIFF", "--- FILE: a.rb ---\ncode")
+        self.assertLess(merged.index("=== FILES ==="), merged.index("THE DIFF"))
+        self.assertIn("=== DIFF ===", merged)
+
+    def test_no_context_changes_nothing(self):
+        self.assertEqual(context.with_context("DIFF", ""), "DIFF")
+        self.assertEqual(context.with_context("DIFF", "   "), "DIFF")
+
+    def test_repo_root_from_flag_and_env(self):
+        self.assertEqual(cli.context_root(["mc", "--repo", "/tmp/x"], {}), "/tmp/x")
+        self.assertEqual(cli.context_root(["mc"], {"MC_REPO": "/tmp/y"}), "/tmp/y")
 
 
 class Convergence(unittest.TestCase):
