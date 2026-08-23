@@ -193,6 +193,13 @@ class Context(unittest.TestCase):
         self.assertEqual(context.with_context("DIFF", ""), "DIFF")
         self.assertEqual(context.with_context("DIFF", "   "), "DIFF")
 
+    def test_context_can_be_switched_off(self):
+        """Контекст кратно дороже — в хуке он должен выключаться, иначе каждый
+        пуш стоит в разы больше."""
+        self.assertFalse(cli.context_wanted({"MC_NO_CONTEXT": "1"}))
+        self.assertTrue(cli.context_wanted({"MC_NO_CONTEXT": "0"}))
+        self.assertTrue(cli.context_wanted({}))
+
     def test_repo_root_from_flag_and_env(self):
         self.assertEqual(cli.context_root(["mc", "--repo", "/tmp/x"], {}), "/tmp/x")
         self.assertEqual(cli.context_root(["mc"], {"MC_REPO": "/tmp/y"}), "/tmp/y")

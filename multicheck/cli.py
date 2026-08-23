@@ -26,6 +26,14 @@ def project_rules(env=None):
         return ""
 
 
+def context_wanted(env=None):
+    """Контекст файлов кратно увеличивает запрос и цену прогона. В хуке на пуше
+    он выключен: там нужна быстрая дешёвая проверка. Глубокий разбор — когда
+    человек запускает сам."""
+    env = os.environ if env is None else env
+    return (env.get("MC_NO_CONTEXT") or "").strip() != "1"
+
+
 def context_root(argv=None, env=None):
     """Откуда брать содержимое изменённых файлов: --repo, MC_REPO или текущая
     директория, если это git-репозиторий."""
@@ -93,7 +101,7 @@ def main(mode, argv=None, stdin=None, opener=None):
         print(exc, file=sys.stderr)
         return 2
 
-    if mode == "review":
+    if mode == "review" and context_wanted():
         payload = context.with_context(payload, context.collect(payload, context_root(argv)))
     payload = with_static(payload, static_findings())
 

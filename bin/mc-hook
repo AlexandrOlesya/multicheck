@@ -10,6 +10,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$(readlink "${BASH_SOURCE[0]}" || echo "${BASH_SOURCE[0]}")")/.." && pwd)"
 ZERO="0000000000000000000000000000000000000000"
 MIN_LINES="${MC_MIN_LINES:-6}"
+MAX_LINES="${MC_MAX_LINES:-1500}"
 read -r -a EXTENSIONS <<<"${MC_EXTENSIONS:-*.rb *.ts *.tsx *.js *.jsx *.py *.sh *.go *.java *.kt *.kts *.rs}"
 
 collect() {
@@ -41,13 +42,26 @@ fi
 
 LINES=$(printf '%s' "$DIFF" | wc -l | tr -d ' ')
 if [[ -z "${DIFF// }" || "$LINES" -lt "$MIN_LINES" ]]; then exit 0; fi
+if [[ "$LINES" -gt "$MAX_LINES" ]]; then
+  echo "── multicheck: диф в $LINES строк больше порога $MAX_LINES — пропускаю, чтобы не жечь бюджет." >&2
+  echo "──   разобрать вручную: mc-review <файл с дифом>. Порог: MC_MAX_LINES ──" >&2
+  exit 0
+fi
 
 TMP="$(mktemp -t multicheck)"
 trap 'rm -f "$TMP"' EXIT
 printf '%s' "$DIFF" > "$TMP"
 
+# Контекст файлов кратно увеличивает запрос и цену. На пуше он выключен —
+# включить разово: MC_HOOK_CONTEXT=1 git push
+if [[ "${MC_HOOK_CONTEXT:-0}" = "1" ]]; then
+  NO_CONTEXT=0
+else
+  NO_CONTEXT=1
+fi
+
 echo "── multicheck: независимая проверка пушимого дифа ($LINES строк, advisory) ──" >&2
-"$ROOT/bin/mc-review" "$TMP" 2>/dev/null | sed 's/^/  /' >&2 || true
+MC_NO_CONTEXT="$NO_CONTEXT" "$ROOT/bin/mc-review" "$TMP" 2>/dev/null | sed 's/^/  /' >&2 || true
 echo "── ⚡ вопросы к себе перед пушем ──" >&2
 GRILL_FAST=1 "$ROOT/bin/mc-grill" "$TMP" 2>/dev/null | sed 's/^/  /' >&2 || true
 echo "── пуш не блокируется. Пропуск: MC_SKIP=1 git push ──" >&2

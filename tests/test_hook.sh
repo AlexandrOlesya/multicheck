@@ -57,6 +57,12 @@ RANGE_DIFF=$(printf 'x %s y %s\n' "$(git rev-parse HEAD)" "000000000000000000000
   | MC_MIN_LINES=1 MC_PANEL="" OPENROUTER_API_KEY="" "$ROOT/bin/mc-hook" 2>&1 | grep -c "строк")
 check "ветка с нестандартным именем даёт диапазон" "1" "$RANGE_DIFF"
 
+printf 'строка\n%.0s' {1..50} >> file.py
+git commit -qam "большой диф"
+OUT=$(printf 'x %s y %s\n' "$(git rev-parse HEAD)" "0000000000000000000000000000000000000000" \
+  | MC_MIN_LINES=1 MC_MAX_LINES=5 OPENROUTER_API_KEY="" "$ROOT/bin/mc-hook" 2>&1)
+check "слишком большой диф не тратит бюджет" "1" "$(printf '%s' "$OUT" | grep -c 'больше порога')"
+
 echo "установщик:"
 
 "$ROOT/bin/mc-install-hook" "$SANDBOX/repo" >/dev/null 2>&1
