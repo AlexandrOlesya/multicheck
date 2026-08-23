@@ -12,7 +12,7 @@ check() {
     echo "  ok   $name"
     PASS=$((PASS + 1))
   else
-    echo "  FAIL $name — ждали «$expected», получили «$actual»"
+    echo "  FAIL $name - ждали [$expected], получили [$actual]"
     FAIL=$((FAIL + 1))
   fi
 }
@@ -54,7 +54,8 @@ git commit -qam "первый непушенный"
 printf 'седьмая\n' >> file.py
 git commit -qam "второй непушенный"
 RANGE_DIFF=$(printf 'x %s y %s\n' "$(git rev-parse HEAD)" "0000000000000000000000000000000000000000" \
-  | MC_MIN_LINES=1 MC_PANEL="" OPENROUTER_API_KEY="" "$ROOT/bin/mc-hook" 2>&1 | grep -c "строк")
+  | MC_MIN_LINES=1 MC_PANEL="" OPENROUTER_API_KEY="" "$ROOT/bin/mc-hook" 2>&1 \
+  | grep -c "проверка пушимого дифа")
 check "ветка с нестандартным именем даёт диапазон" "1" "$RANGE_DIFF"
 
 printf 'строка\n%.0s' {1..50} >> file.py

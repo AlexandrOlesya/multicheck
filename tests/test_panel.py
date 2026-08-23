@@ -60,23 +60,24 @@ class KeyResolution(unittest.TestCase):
 
 class Ask(unittest.TestCase):
     def test_returns_content(self):
-        got = panel.ask("m", "sys", "diff", "k", opener=fake_opener([reply("нашёл дыру")]))
+        got, cost = panel.ask("m", "sys", "diff", "k", opener=fake_opener([reply("нашёл дыру")]))
         self.assertEqual(got, "нашёл дыру")
+        self.assertEqual(cost, 0.0, "в ответе без usage стоимость считается нулевой")
 
     def test_retries_after_network_error(self):
-        got = panel.ask("m", "sys", "diff", "k", opener=fake_opener(["boom", reply("со второго раза")]))
+        got, _ = panel.ask("m", "sys", "diff", "k", opener=fake_opener(["boom", reply("со второго раза")]))
         self.assertEqual(got, "со второго раза")
 
     def test_empty_content_is_not_an_answer(self):
-        got = panel.ask("m", "sys", "diff", "k", retries=0, opener=fake_opener([reply("   ")]))
+        got, _ = panel.ask("m", "sys", "diff", "k", retries=0, opener=fake_opener([reply("   ")]))
         self.assertIsNone(got)
 
     def test_gives_up_after_retries(self):
-        got = panel.ask("m", "sys", "diff", "k", retries=1, opener=fake_opener(["boom", "boom"]))
+        got, _ = panel.ask("m", "sys", "diff", "k", retries=1, opener=fake_opener(["boom", "boom"]))
         self.assertIsNone(got)
 
     def test_missing_choices_does_not_crash(self):
-        got = panel.ask("m", "sys", "diff", "k", retries=0, opener=fake_opener([{"error": "rate limit"}]))
+        got, _ = panel.ask("m", "sys", "diff", "k", retries=0, opener=fake_opener([{"error": "rate limit"}]))
         self.assertIsNone(got)
 
     def test_long_input_is_truncated(self):
@@ -102,7 +103,7 @@ class Defaults(unittest.TestCase):
         finally:
             os.environ.clear()
             os.environ.update(saved)
-        self.assertEqual([model for model, _ in results], ["x/alpha", "y/beta"])
+        self.assertEqual([model for model, _, _ in results], ["x/alpha", "y/beta"])
 
 
 class Render(unittest.TestCase):
@@ -119,6 +120,21 @@ class Render(unittest.TestCase):
         out = panel.render([("a/one", "находка"), ("b/two", None)])
         self.assertNotIn("ПАНЕЛЬ НЕДОСТУПНА", out,
                          "если хоть кто-то ответил, паниковать нельзя")
+
+    def test_shows_what_the_run_cost(self):
+        """Цена прогона должна быть видна: иначе расход растёт незаметно."""
+        out = panel.render([("a/one", "находка", 0.0123), ("b/two", None, 0.0004)])
+        self.assertIn("$0.0127", out)
+
+    def test_no_cost_line_when_nothing_billed(self):
+        out = panel.render([("a/one", "находка", 0.0)])
+        self.assertNotIn("прогон стоил", out)
+
+    def test_cost_is_captured_from_response(self):
+        answer = {"choices": [{"message": {"content": "есть"}}], "usage": {"cost": 0.042}}
+        got, cost = panel.ask("m", "sys", "diff", "k", opener=fake_opener([answer]))
+        self.assertEqual(got, "есть")
+        self.assertEqual(cost, 0.042)
 
     def test_uses_short_model_name(self):
         out = panel.render([("vendor/family/model-x", "текст")])
@@ -205,6 +221,47 @@ class Context(unittest.TestCase):
         self.assertEqual(cli.context_root(["mc"], {"MC_REPO": "/tmp/y"}), "/tmp/y")
 
 
+class ContextIsAttachedOnlyWhereItPays(unittest.TestCase):
+    """Контекст файлов дорог. Он должен попадать только в разбор кода и только
+    когда его не выключили: иначе допрос и опровержение стоят как ревью."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        os.makedirs(os.path.join(self.root, "app"))
+        with open(os.path.join(self.root, "app", "a.rb"), "w", encoding="utf-8") as handle:
+            handle.write("class Payment; end")
+        self.diff = "--- a/app/a.rb\n+++ b/app/a.rb\n@@ -1 +1 @@\n-x\n+y\n"
+        self.dump = os.path.join(tempfile.mkdtemp(), "payload.txt")
+        self.saved = dict(os.environ)
+        os.environ["OPENROUTER_API_KEY"] = "k"
+        os.environ["MC_PANEL"] = "a/one"
+        os.environ["MC_REPO"] = self.root
+        os.environ["MC_DUMP_PAYLOAD"] = self.dump
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.saved)
+
+    def sent(self, mode):
+        cli.main(mode, ["prog", "-"], stdin=io.StringIO(self.diff),
+                 opener=fake_opener([reply("ok")]))
+        with open(self.dump, encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_review_gets_file_contents(self):
+        self.assertIn("class Payment; end", self.sent("review"))
+
+    def test_grill_does_not_pay_for_context(self):
+        self.assertNotIn("class Payment; end", self.sent("grill"))
+
+    def test_refute_does_not_pay_for_context(self):
+        self.assertNotIn("class Payment; end", self.sent("refute"))
+
+    def test_switch_off_works_for_review(self):
+        os.environ["MC_NO_CONTEXT"] = "1"
+        self.assertNotIn("class Payment; end", self.sent("review"))
+
+
 class Convergence(unittest.TestCase):
     def test_no_findings_is_ideal(self):
         state, _ = convergence.decide([], [])
@@ -265,9 +322,14 @@ class Modes(unittest.TestCase):
     def test_panel_is_configurable(self):
         self.assertEqual(panel.panel_models({"MC_PANEL": "x/y"}), ["x/y"])
 
-    def test_default_panel_has_several_vendors(self):
-        vendors = {m.split("/")[0] for m in panel.DEFAULT_PANEL}
-        self.assertGreater(len(vendors), 1, "панель из одного вендора не даёт независимости")
+    def test_default_panel_is_one_strong_model(self):
+        """Замер показал: одна сильная модель находит втрое больше настоящих
+        дефектов и выдаёт вдвое меньше мусора, чем три дешёвые вместе."""
+        self.assertEqual(len(panel.DEFAULT_PANEL), 1)
+
+    def test_cheap_panel_available_by_name(self):
+        self.assertEqual(panel.panel_models({"MC_PANEL": "cheap"}), panel.CHEAP_PANEL)
+        self.assertGreater(len(panel.CHEAP_PANEL), 1)
 
     def test_project_rules_appended(self):
         merged = prompts.with_project_rules("BASE", "никаких голых SQL")

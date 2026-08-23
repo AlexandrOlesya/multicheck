@@ -7,7 +7,11 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 API_URL = os.environ.get("MC_API_URL", "https://openrouter.ai/api/v1/chat/completions")
-DEFAULT_PANEL = [
+# Замер на Code Review Bench показал: одна сильная модель находит втрое больше
+# настоящих дефектов и выдаёт вдвое меньше мусора, чем три дешёвые вместе.
+# Дешёвая тройка осталась опцией — см. README, раздел про цену.
+DEFAULT_PANEL = ["x-ai/grok-4.6"]
+CHEAP_PANEL = [
     "deepseek/deepseek-chat-v3-0324",
     "google/gemini-2.0-flash-001",
     "qwen/qwen-2.5-coder-32b-instruct",
@@ -43,6 +47,8 @@ def resolve_key(env=None, files=None):
 def panel_models(env=None):
     env = os.environ if env is None else env
     raw = (env.get("MC_PANEL") or "").strip()
+    if raw.lower() == "cheap":
+        return list(CHEAP_PANEL)
     if not raw:
         return list(DEFAULT_PANEL)
     return [m.strip() for m in raw.split(",") if m.strip()]
@@ -59,6 +65,7 @@ def ask(model, system, payload, key, retries=2, timeout=120, opener=None):
         "max_tokens": int(os.environ.get("MC_MAX_TOKENS", "4000")),
         "temperature": 0.3,
         "reasoning": {"exclude": True},
+        "usage": {"include": True},
     }).encode()
 
     for _ in range(retries + 1):
@@ -67,29 +74,36 @@ def ask(model, system, payload, key, retries=2, timeout=120, opener=None):
         request.add_header("Content-Type", "application/json")
         try:
             raw = opener(request, timeout=timeout).read()
-            choices = json.loads(raw).get("choices") or []
+            answer = json.loads(raw)
+            choices = answer.get("choices") or []
         except Exception:
             continue
         if not choices:
             continue
         content = (choices[0].get("message") or {}).get("content") or ""
         if content.strip():
-            return content.strip()
-    return None
+            return content.strip(), float((answer.get("usage") or {}).get("cost") or 0)
+    return None, 0.0
 
 
 def run(system, payload, models=None, key=None, opener=None):
     models = models or panel_models()
     key = key or resolve_key()
+    def one(model):
+        output, cost = ask(model, system, payload, key, opener=opener)
+        return model, output, cost
+
     with ThreadPoolExecutor(max_workers=max(1, len(models))) as pool:
-        return list(pool.map(lambda m: (m, ask(m, system, payload, key, opener=opener)), models))
+        return list(pool.map(one, models))
 
 
 def render(results, marker="🔴", label="red-team"):
     lines = []
     answered = False
-    for model, output in results:
+    spent = 0.0
+    for model, output, *rest in results:
         short = model.split("/")[-1]
+        spent += float(rest[0]) if rest else 0.0
         if output:
             answered = True
             lines.append(f"### {marker} {label}: {short}\n{output}\n")
@@ -97,6 +111,8 @@ def render(results, marker="🔴", label="red-team"):
             lines.append(f"### ⚪ {short} — не ответил (лимит или таймаут)\n")
     if not answered:
         lines.append("ПАНЕЛЬ НЕДОСТУПНА — ни одна модель не ответила.")
+    if spent:
+        lines.append(f"— прогон стоил ${spent:.4f} —")
     return "\n".join(lines)
 
 
