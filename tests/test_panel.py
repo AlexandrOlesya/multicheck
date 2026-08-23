@@ -211,6 +211,28 @@ class Modes(unittest.TestCase):
         finally:
             os.unlink(handle.name)
 
+    def test_static_findings_are_marked_as_already_known(self):
+        merged = cli.with_static("DIFF HERE", "app.rb:12 Style/Foo")
+        self.assertIn("DIFF HERE", merged)
+        self.assertIn("app.rb:12", merged)
+        self.assertIn("Do NOT repeat", merged)
+        self.assertLess(merged.index("ALREADY REPORTED"), merged.index("DIFF HERE"),
+                        "уже найденное должно идти до дифа, иначе модель его не заметит")
+
+    def test_no_static_output_changes_nothing(self):
+        self.assertEqual(cli.with_static("DIFF", ""), "DIFF")
+        self.assertEqual(cli.with_static("DIFF", "   "), "DIFF")
+
+    def test_static_findings_read_from_env_path(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as handle:
+            handle.write("lib/a.rb:3 unused variable")
+        try:
+            self.assertIn("unused variable", cli.static_findings({"MC_STATIC": handle.name}))
+            self.assertEqual(cli.static_findings({"MC_STATIC": "/nope/missing.txt"}), "")
+            self.assertEqual(cli.static_findings({}), "")
+        finally:
+            os.unlink(handle.name)
+
     def test_directory_as_rules_path_is_survivable(self):
         """Путь может указывать на папку — прогон не должен падать."""
         self.assertEqual(cli.project_rules({"MC_PROJECT_RULES": tempfile.mkdtemp()}), "")

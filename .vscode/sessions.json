@@ -1,0 +1,21 @@
+{
+  "active": "default",
+  "activateOnStartup": true,
+  "keepExistingTerminals": false,
+  "noClear": true,
+  "sessions": {
+    "default": [
+      {
+        "name": "multicheck-5f",
+        "commands": [
+          "$HOME/.claude-nwave/bin/claude-restore.sh --if-absent 70100836-a5bf-4438-a3d9-d8ee92184d13"
+        ],
+        "autoExecuteCommands": true,
+        "cwd": "/Users/alexander/multicheck",
+        "focus": false,
+        "icon": "terminal",
+        "color": "terminal.ansiBlue"
+      }
+    ]
+  }
+}
