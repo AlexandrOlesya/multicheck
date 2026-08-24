@@ -1,0 +1,35 @@
+#!/bin/bash
+# Линия Cursor: ищет дефекты через cursor-agent на оплаченном плане Cursor.
+# По замеру даёт лучшую полноту из всех проверенных вариантов и не стоит денег,
+# но шумит — отсев ставится отдельным шагом (mc-review --verify).
+set -uo pipefail
+export PATH="$HOME/.local/bin:$PATH"
+MODEL="${MC_CURSOR_MODEL:-gpt-5.2}"
+
+if [[ $# -ge 1 && "$1" != "-" ]]; then PAYLOAD="$(cat "$1")"; else PAYLOAD="$(cat)"; fi
+if [[ -z "${PAYLOAD// }" ]]; then echo "пустой вход — нечего проверять"; exit 0; fi
+
+if ! command -v cursor-agent >/dev/null 2>&1; then
+  echo "### ⚪ Cursor недоступен: cursor-agent не установлен."
+  echo "Установка: curl https://cursor.com/install -fsS | bash, затем cursor-agent login"
+  exit 0
+fi
+
+PROMPT="You are a RED-TEAM code reviewer from an independent team. Find every defect a
+senior reviewer would block this change for: runtime failures, references to things that
+do not exist, broken callers, wrong results, security and multi-tenant leaks, races,
+missing idempotency, unbounded queries. For each: \`file:line — what is wrong and when it
+bites — impact\`. Be exhaustive about real defects and silent about style. Do not invent
+code that is not shown. If the change is genuinely sound: CANNOT BREAK.
+
+$PAYLOAD"
+
+WORKSPACE="$(mktemp -d)"
+trap 'rm -rf "$WORKSPACE"' EXIT
+
+echo "### 🔴 red-team: cursor/$MODEL"
+if OUTPUT="$(cd "$WORKSPACE" && printf '%s' "$PROMPT" | cursor-agent -p --output-format text --model "$MODEL" --trust 2>/dev/null)"; then
+  printf '%s\n' "$OUTPUT"
+else
+  echo "(cursor-agent не ответил — проверь вход: cursor-agent login)"
+fi

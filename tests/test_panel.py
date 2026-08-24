@@ -7,7 +7,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from multicheck import cli, context, convergence, panel, prompts
+from multicheck import cli, context, convergence, panel, prompts, verify
 
 
 def fake_opener(payloads):
@@ -260,6 +260,51 @@ class ContextIsAttachedOnlyWhereItPays(unittest.TestCase):
     def test_switch_off_works_for_review(self):
         os.environ["MC_NO_CONTEXT"] = "1"
         self.assertNotIn("class Payment; end", self.sent("review"))
+
+
+class Verification(unittest.TestCase):
+    """Проверяющий размечает, но не выбрасывает: дешёвая модель ошибается в обе
+    стороны, и тихая потеря настоящего дефекта хуже лишнего шума."""
+
+    ANSWER = (
+        "CONFIRMED | a.rb:3 гонка при повторном запросе | двойной update без блокировки\n"
+        "UNSUPPORTED | b.rb:9 метод foo не существует | метод объявлен строкой ниже\n"
+        "DOUBTFUL | c.rb:1 возможен N+1 | не видно, как вызывается\n"
+    )
+
+    def test_nothing_is_removed(self):
+        out, counts = verify.annotate("три находки", "код", key="k",
+                                      opener=fake_opener([reply(self.ANSWER)]))
+        self.assertIn("гонка при повторном запросе", out)
+        self.assertIn("метод foo не существует", out, "неподтверждённое остаётся видимым")
+        self.assertIn("возможен N+1", out)
+        self.assertEqual(counts, {"CONFIRMED": 1, "UNSUPPORTED": 1, "DOUBTFUL": 1})
+
+    def test_marks_and_reasons_are_shown(self):
+        out, _ = verify.annotate("f", "код", key="k", opener=fake_opener([reply(self.ANSWER)]))
+        self.assertIn("✗ код не подтверждает", out)
+        self.assertIn("объявлен строкой ниже", out)
+        self.assertIn("Решение об отсеве за тобой", out)
+
+    def test_verifier_failure_keeps_findings(self):
+        out, counts = verify.annotate("важная находка", "код", key="k",
+                                      opener=fake_opener(["boom", "boom", "boom"]))
+        self.assertEqual(out, "важная находка")
+        self.assertEqual(counts, {})
+
+    def test_unparsable_answer_keeps_findings(self):
+        out, _ = verify.annotate("важная находка", "код", key="k",
+                                 opener=fake_opener([reply("да вроде нормально всё")]))
+        self.assertEqual(out, "важная находка")
+
+    def test_confirmed_subset_for_measurement(self):
+        out, _ = verify.annotate("f", "код", key="k", opener=fake_opener([reply(self.ANSWER)]))
+        subset = verify.confirmed_only(out)
+        self.assertIn("гонка", subset)
+        self.assertNotIn("метод foo", subset)
+
+    def test_empty_input_is_untouched(self):
+        self.assertEqual(verify.annotate("", "код", key="k")[0], "")
 
 
 class Convergence(unittest.TestCase):

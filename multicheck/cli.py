@@ -1,8 +1,9 @@
 """Точка входа для трёх режимов: mc-review, mc-refute, mc-grill."""
 import os
+import subprocess
 import sys
 
-from . import context, panel, prompts
+from . import context, panel, prompts, verify
 
 MAX_RULES_CHARS = 20000
 MAX_STATIC_CHARS = 20000
@@ -113,6 +114,30 @@ def main(mode, argv=None, stdin=None, opener=None):
         except OSError:
             pass
 
-    results = panel.run(system, payload, models=models_for(mode), key=key, opener=opener)
-    print(panel.render(results, marker=marker, label=label))
+    if "--finder" in argv and argv[argv.index("--finder") + 1:argv.index("--finder") + 2] == ["cursor"]:
+        found = run_cursor(payload)
+        spent = 0.0
+    else:
+        results = panel.run(system, payload, models=models_for(mode), key=key, opener=opener)
+        found = panel.render(results, marker=marker, label=label)
+        spent = sum(float(r[2]) for r in results if len(r) > 2)
+
+    if "--verify" in argv:
+        code = context.collect(payload, context_root(argv)) or payload
+        found, _ = verify.annotate(found, code, key=key, opener=opener)
+        if "--confirmed-only" in argv:
+            found = verify.confirmed_only(found)
+
+    print(found)
+    if spent:
+        print(f"— прогон стоил ${spent:.4f} —")
     return 0
+
+
+def run_cursor(payload):
+    binary = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "mc-cursor")
+    try:
+        done = subprocess.run([binary, "-"], input=payload, capture_output=True, text=True, timeout=600)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"### ⚪ Cursor недоступен: {exc}"
+    return done.stdout.strip()
