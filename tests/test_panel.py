@@ -474,3 +474,31 @@ class CliBehaviour(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class RateTest(unittest.TestCase):
+    """Adversarial rating: 2 rater + скептик-supervisor."""
+
+    def test_supervisor_consolidates(self):
+        from multicheck import rate
+        # 2 rater'а + 1 supervisor (первый в цепочке ответил)
+        opener = fake_opener([
+            reply("1 · High · C1/low/tenant · leak"),
+            reply("1 · Medium · C2/low/record · minor"),
+            reply("1 · Medium · KEEP · single record, authenticated"),
+        ])
+        out = rate.rate("1. foo.rb:1 — leak", key="k", opener=opener,
+                        raters=["a", "b"], supervisors=["s"])
+        self.assertIn("KEEP", out)
+        self.assertIn("Рейтинг", out)
+
+    def test_no_raters_degrades(self):
+        from multicheck import rate
+        opener = fake_opener([reply("   "), reply("   ")])
+        out = rate.rate("1. foo.rb:1 — leak", key="k", opener=opener,
+                        raters=["a", "b"], supervisors=["s"])
+        self.assertIn("вручную", out)
+
+    def test_empty_findings(self):
+        from multicheck import rate
+        self.assertIn("нет находок", rate.rate("  ", key="k"))
