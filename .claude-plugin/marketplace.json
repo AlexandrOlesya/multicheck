@@ -1,0 +1,11 @@
+{
+  "name": "multicheck",
+  "owner": { "name": "AlexandrOlesya" },
+  "plugins": [
+    {
+      "name": "multicheck",
+      "source": ".",
+      "description": "Iterative adversarial code review: an independent panel breaks the change, a separate rater step assigns severity, the loop repeats until sound or stuck."
+    }
+  ]
+}

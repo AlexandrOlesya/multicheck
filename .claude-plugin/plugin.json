@@ -1,0 +1,6 @@
+{
+  "name": "multicheck",
+  "version": "0.7.0",
+  "description": "Iterative adversarial review — panel breaks the code, raters score, loop to convergence. Three modes: break code / refute a conclusion / grill the author.",
+  "skills": ["skills/multicheck"]
+}
