@@ -502,3 +502,55 @@ class RateTest(unittest.TestCase):
     def test_empty_findings(self):
         from multicheck import rate
         self.assertIn("нет находок", rate.rate("  ", key="k"))
+
+
+class TestMergeRules(unittest.TestCase):
+    """Три правила слияния: считать процессы, не бросать одиночный critical, беречь всё
+    при выпавшей линии. Каждое чинит свою тихую потерю находки."""
+
+    def test_the_rules_reach_the_supervisor(self):
+        from multicheck import prompts
+        for mark in ('COUNTS PROCESSES', 'NEVER DROP a Critical', 'RAN DEGRADED'):
+            self.assertIn(mark, prompts.SUPERVISE)
+
+    def test_sources_go_to_the_supervisor_as_fact(self):
+        from multicheck import rate as rate_module
+        seen = {}
+
+        def fake_ask(model, system, payload, key, opener=None):
+            seen['payload'] = payload
+            return 'итог', None
+
+        def fake_run(system, payload, models=None, key=None, opener=None):
+            return [(models[0], 'rater says', None)]
+
+        original = (rate_module.panel.ask, rate_module.panel.run)
+        rate_module.panel.ask, rate_module.panel.run = fake_ask, fake_run
+        try:
+            rate_module.rate('1 · находка', key='k', sources='2 из 3, выпал: агент')
+        finally:
+            rate_module.panel.ask, rate_module.panel.run = original
+        self.assertIn('SOURCES THAT RAN: 2 из 3, выпал: агент', seen['payload'])
+
+    def test_without_sources_the_run_counts_as_degraded(self):
+        from multicheck import rate as rate_module
+        seen = {}
+
+        def fake_ask(model, system, payload, key, opener=None):
+            seen['payload'] = payload
+            return 'итог', None
+
+        def fake_run(system, payload, models=None, key=None, opener=None):
+            return [(models[0], 'rater says', None)]
+
+        original = (rate_module.panel.ask, rate_module.panel.run)
+        rate_module.panel.ask, rate_module.panel.run = fake_ask, fake_run
+        try:
+            rate_module.rate('1 · находка', key='k')
+        finally:
+            rate_module.panel.ask, rate_module.panel.run = original
+        self.assertIn('possibly degraded and drop nothing', seen['payload'])
+
+    def test_no_dead_model_in_the_supervisor_chain(self):
+        from multicheck import rate as rate_module
+        self.assertNotIn('gemini-2.0-flash-001', rate_module.SUPERVISORS)

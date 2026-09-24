@@ -57,6 +57,19 @@ RATE = (
     "Do not restate the finding. No chain-of-thought."
 )
 
+# Три правила слияния, перенятые у revmux (MIT, github.com/umputun/revmux) после сравнения
+# на живом модуле 24.09.2026. Каждое чинит свою тихую потерю находки.
+_MERGE = (
+    " CORROBORATION COUNTS PROCESSES, NOT LENSES: the same defect reported twice by one "
+    "vendor from two angles is ONE source and earns no extra weight; agreement between "
+    "DIFFERENT vendors is the strong signal."
+    " NEVER DROP a Critical or High raised by a single source — one reviewer looking in the "
+    "right place is the normal case for the worst defects. Route it to verification instead."
+    " IF THE PANEL RAN DEGRADED (a line is missing — see SOURCES above): drop nothing at all. "
+    "Corroboration is rarer with a source missing, so the drop rule starts eating exactly what "
+    "the missing line would have confirmed."
+)
+
 SUPERVISE = (
     "You are a skeptical supervisor consolidating two independent raters. "
     + _AXES
@@ -65,7 +78,9 @@ SUPERVISE = (
     "KEEP (a real finding, act on it), HARDENING (no attack path — nice-to-have, not blocking), "
     "DROP (false positive, already handled, or not a real defect). Be adversarial toward "
     "inflated ratings: where the two raters disagree, decide and say which you trust. Prefer "
-    "DROP or HARDENING over inventing risk. No chain-of-thought, no preamble."
+    "DROP or HARDENING over inventing risk."
+    + _MERGE
+    + " No chain-of-thought, no preamble."
 )
 
 PROJECT_RULES_HINT = (

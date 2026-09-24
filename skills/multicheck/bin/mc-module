@@ -1,0 +1,73 @@
+#!/bin/bash
+# Четвёртый режим: проверка МОДУЛЯ против его контракта, а не дифа.
+#
+# Панель по дифу ловит то, что сломано правкой, и слепа к дефектам вида «модуль
+# противоречит собственному обещанию»: их видно, только когда читаешь модуль целиком с
+# вопросом «что он обязан делать».
+#
+# Движок — revmux (MIT, github.com/umputun/revmux): find → synthesize → verify, каждая
+# модель отдельным процессом, выпавшая линия видна в отчёте. Здесь только обёртка: она
+# собирает задание (что за модуль, что он обязан делать, какие в проекте конвенции) и
+# подставляет профиль с моделями, которые есть у вас.
+#
+#   mc-module <путь-к-модулю> "<что модуль обязан делать>" [профиль]
+#
+# Профиль: focused (по умолчанию, две линии), comprehensive (четыре), grill-me, expert —
+# это профили самого revmux, его промпты и линзы. Здесь они не копируются: чужой текст
+# живёт у автора.
+#
+# Если подписка не даёт модель из профиля (у ChatGPT Plus, например, нет gpt-6-sol),
+# сделайте свой набор и укажите путь:
+#   revmux --dump-defaults ./my-revmux    # выложить промпты и профили
+#   # поправить имя модели в my-revmux/prompts/profiles/<профиль>.md
+#   MC_REVMUX_CONF=./my-revmux mc-module src/billing "что модуль обязан делать"
+set -uo pipefail
+
+MODULE="${1:?укажи путь к модулю, например src/billing}"
+GOAL="${2:?опиши одной-двумя фразами, что модуль обязан делать}"
+PROFILE="${3:-focused}"
+
+command -v revmux >/dev/null 2>&1 || {
+  echo "нужен revmux: brew install umputun/apps/revmux (или пакеты для Linux)"; exit 3; }
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "не репозиторий: запускать из дерева проекта"; exit 3; }
+TASKS="${MC_MODULE_TASKS:-${TMPDIR:-/tmp}/mc-module}"
+TASK=$(echo "$MODULE" | tr '/' '-' | tr -cd 'A-Za-z0-9-')
+RUN=$(date +%Y%m%d-%H%M)
+
+mkdir -p "$TASKS"
+revmux new --task "$TASK" --run "$RUN" --tasks-dir "$TASKS" >/dev/null || exit 3
+IN="$TASKS/$TASK/$RUN/input"
+
+cat > "$IN/scope.md" <<MD
+# Что проверяем
+
+Модуль \`$MODULE\` в репозитории \`$ROOT\`, целиком, в нынешнем состоянии ветки.
+Это не диф: предмет проверки — модуль и то, держит ли он своё обещание.
+
+Список файлов:
+
+\`\`\`
+git -C "$ROOT" ls-files "$MODULE"
+\`\`\`
+
+Тесты рядом с модулем — тоже предмет проверки, а не доказательство исправности.
+MD
+
+printf '%s\n' "$GOAL" > "$IN/goal.md"
+for candidate in "$ROOT/CLAUDE.md" "$ROOT/AGENTS.md" "$ROOT/.claude/CLAUDE.md" "$ROOT/README.md"; do
+  [[ -f "$candidate" ]] && { head -c 8000 "$candidate" > "$IN/profile.md"; break; }
+done
+
+CONF=()
+[[ -n "${MC_REVMUX_CONF:-}" ]] && CONF=(--config-dir "$MC_REVMUX_CONF")
+
+echo "── модуль $MODULE против контракта, профиль $PROFILE ──"
+revmux --task "$TASK" --run "$RUN" --tasks-dir "$TASKS" "${CONF[@]}" \
+  --workdir "$ROOT" --profile "$PROFILE" --no-tui --markdown
+code=$?
+echo
+echo "── отчёт и сырые ответы: $TASKS/$TASK/$RUN ──"
+[[ $code -eq 2 ]] && echo "   (код 2 — сбой инструмента, а не находки)"
+exit $code
